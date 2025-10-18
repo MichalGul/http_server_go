@@ -6,9 +6,11 @@ import (
 	"io"
 	"log"
 	"os"
+	"strings"
 )
 
-const messagesFilename string = "messages.txt" 
+const messagesFilename string = "messages.txt"
+
 
 func main() {
 
@@ -19,11 +21,11 @@ func main() {
 	}
 	defer file.Close()
 
+	var currentLine string = ""
 
 	for {
 		dataChunk := make([]byte, 8)
 		numOfBytes, readError := file.Read(dataChunk)
-
 		if readError != nil {
 			if errors.Is(readError, io.EOF) {
 				break
@@ -32,8 +34,20 @@ func main() {
 			break
 		}
 
-		fmt.Printf("read: %s\n", dataChunk[:numOfBytes])
-		
+		dataString := string(dataChunk[:numOfBytes])
+		currentLine += dataString
+
+		parts := strings.Split(currentLine, "\n")
+
+		for i := 0; i < len(parts)-1; i++ {
+			fmt.Printf("read: %s\n", parts[i])
+		}
+
+		currentLine = parts[len(parts)-1]
+
 	}
 
+	if currentLine != "" {
+		fmt.Printf("read: %s\n", currentLine)
+	}
 }
