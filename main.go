@@ -4,19 +4,24 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log"
 	"os"
 	"strings"
+	"net"
+	"log"
 )
 
 const messagesFilename string = "messages.txt"
+const port = ":42069"
 
 
 func getLinesChannel(f io.ReadCloser) <- chan string {
 
 	lines := make(chan string)
 
+	// Goroutine to write file contents to channel line by line
 	go func () {
+		defer close(lines)
+		defer f.Close()
 		var currentLine string = ""
 		for {
 			dataChunk := make([]byte, 8)
@@ -26,7 +31,7 @@ func getLinesChannel(f io.ReadCloser) <- chan string {
 					break
 				}
 				fmt.Printf("error: %s\n", readError.Error())
-				break
+				return
 			}
 
 			dataString := string(dataChunk[:numOfBytes])
@@ -44,10 +49,7 @@ func getLinesChannel(f io.ReadCloser) <- chan string {
 		if currentLine != "" {
 			lines <- currentLine
 		}
-		close(lines)
-		f.Close()
 	}()
-
 	return lines
 }
 
@@ -56,18 +58,37 @@ func getLinesChannel(f io.ReadCloser) <- chan string {
 func main() {
 
 	// Loading file
-	file, err := os.Open(messagesFilename)
+	// file, err := os.Open(messagesFilename)
+	// if err != nil {
+	// 	log.Fatalf("File %s failed to open: %v \n", messagesFilename, err)
+	// }
+	// defer file.Close()
+
+	// Reading from tcp connection
+
+	listener, err := net.Listen("tcp", port)
 	if err != nil {
-		log.Fatalf("File %s failed to open: %v \n", messagesFilename, err)
+		log.Fatalf("error listening for TCP traffic: %s\n", err.Error())
 	}
-	defer file.Close()
+	defer listener.Close()
 
-	linesChannel := getLinesChannel(file)
+	for {
+		// Wait for a connection.
+		connection, err := listener.Accept()
+		if err != nil {
+			fmt.Printf("Connecting error: %s\n", err.Error())
+			os.Exit(0)
+		}
+		fmt.Println("Accepted connection from", connection.RemoteAddr())
 
-	for elem := range linesChannel {
-		fmt.Printf("read: %s\n", elem)
+		linesChannel := getLinesChannel(connection)
+		for elem := range linesChannel {
+			fmt.Printf("%s\n", elem)
+		}
+
+		fmt.Println("Connection to", connection.RemoteAddr(), "closed")
+	
 
 	}
-
 
 }
