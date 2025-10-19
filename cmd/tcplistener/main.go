@@ -10,10 +10,13 @@ import (
 	"log"
 )
 
-const messagesFilename string = "messages.txt"
 const port = ":42069"
 
-
+// Returns a chanel to read data from
+// Runs goorutine that reads from io.Read in chunks of 8 bytes
+// Goorutine searchs for new line and then pust while line into
+// channel. Closes channel when there is no more data in io.ReadCloser to read
+// note: io can be anything from file to tcp connection
 func getLinesChannel(f io.ReadCloser) <- chan string {
 
 	lines := make(chan string)
@@ -37,6 +40,8 @@ func getLinesChannel(f io.ReadCloser) <- chan string {
 			dataString := string(dataChunk[:numOfBytes])
 			currentLine += dataString
 
+			// Read until new line character, then place whole line
+			// into clannel and accumulate next line.
 			parts := strings.Split(currentLine, "\n")
 
 			for i := 0; i < len(parts)-1; i++ {
@@ -50,6 +55,7 @@ func getLinesChannel(f io.ReadCloser) <- chan string {
 			lines <- currentLine
 		}
 	}()
+
 	return lines
 }
 
@@ -57,15 +63,7 @@ func getLinesChannel(f io.ReadCloser) <- chan string {
 
 func main() {
 
-	// Loading file
-	// file, err := os.Open(messagesFilename)
-	// if err != nil {
-	// 	log.Fatalf("File %s failed to open: %v \n", messagesFilename, err)
-	// }
-	// defer file.Close()
-
-	// Reading from tcp connection
-
+	// Opening TCP connection
 	listener, err := net.Listen("tcp", port)
 	if err != nil {
 		log.Fatalf("error listening for TCP traffic: %s\n", err.Error())
@@ -81,6 +79,7 @@ func main() {
 		}
 		fmt.Println("Accepted connection from", connection.RemoteAddr())
 
+		// Get channel and read data from it
 		linesChannel := getLinesChannel(connection)
 		for elem := range linesChannel {
 			fmt.Printf("%s\n", elem)
