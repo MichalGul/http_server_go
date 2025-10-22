@@ -1,7 +1,7 @@
 package request
 
 import (
-	"errors"
+	"bytes"
 	"fmt"
 	"io"
 	"strings"
@@ -17,18 +17,30 @@ type RequestLine struct {
 	Method        string
 }
 
-func parseRequestLine(requestString string) (*RequestLine, error) {
+const crlf = "\r\n"
 
-	requestParts := strings.Split(requestString, "\r\n")
-	requestLineRaw := requestParts[0]
-	fmt.Printf("requestLineRaw: %s \n", requestLineRaw)
+func parseRequestLine(data []byte) (*RequestLine, error) {
+	
+	// Find endline /r/n so everything until first CR on http request
+	idx := bytes.Index(data, []byte(crlf))
+	if idx == -1 {
+		return nil, fmt.Errorf("could not find CRLF in request-line")
+	}
+	requestLineText := string(data[:idx])
+	requestLine, err := requestLineFromString(requestLineText)
+	if err != nil {
+		return nil, err
+	}
+	return requestLine, nil
+}
 
-	requestLineParts := strings.Split(requestLineRaw, " ")
+func requestLineFromString(requestLineString string) (*RequestLine, error) {
 
-	fmt.Printf("requestLineParts: %s \n", requestLineParts)
+	fmt.Printf("requestLineRaw: %s \n", requestLineString)
 
+	requestLineParts := strings.Split(requestLineString, " ")
 	if len(requestLineParts) != 3 {
-		return nil, errors.New("http request line missing all request line parts")
+		return nil, fmt.Errorf("poorly formatted request-line: %s", requestLineParts)
 	}
 
 	method := requestLineParts[0]
@@ -36,21 +48,30 @@ func parseRequestLine(requestString string) (*RequestLine, error) {
 	httpVersion := requestLineParts[2]
 
 	if method != strings.ToUpper(method) {
-		return nil, errors.New("http method not all in caps")
+		return nil, fmt.Errorf("invalid http method: %s", method)
 	}
 
 	httpVersionsPart := strings.Split(httpVersion, "/")
-	
-	if len(httpVersion) <2 && string(httpVersionsPart[1]) != "1.1" {
-		return nil, errors.New("bad http version")
+
+	if len(httpVersionsPart) != 2 {
+		return nil, fmt.Errorf("malformed start-line: %s", requestLineString)
 	}
-	httpVersion = string(httpVersionsPart[1])
+
+	httpPart := httpVersionsPart[0]
+	if httpPart != "HTTP" {
+		return nil, fmt.Errorf("unrecognized HTTP-version: %s", httpPart)
+	}
+
+	version := httpVersionsPart[1]
+	if version != "1.1" {
+		return nil, fmt.Errorf("bad http version")
+	}
 
 	fmt.Printf("Method: %s \n requestTarget: %s \n httpVersion: %s \n", method, requestTarget, httpVersion)
 
 	parsedRequestLine := RequestLine{
-		HttpVersion: httpVersion,
-		Method: method,
+		HttpVersion:   version,
+		Method:        method,
 		RequestTarget: requestTarget,
 	}
 
@@ -68,7 +89,7 @@ func RequestFromReader(reader io.Reader) (*Request, error) {
 	}
 
 	fmt.Printf("Reader data: \n %s \n", string(requestString))
-	requestLine, err := parseRequestLine(string(requestString))
+	requestLine, err := parseRequestLine(requestString)
 	if err != nil {
 		fmt.Printf("error: %s\n", err.Error())
 		return nil, err
