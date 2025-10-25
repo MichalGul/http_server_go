@@ -1,13 +1,14 @@
 package main
 
 import (
-	"errors"
+	// "errors"
 	"fmt"
-	"io"
+	// "io"
 	"os"
-	"strings"
+	// "strings"
 	"net"
 	"log"
+	"github.com/MichalGul/http_server_go/internal/request"
 )
 
 const port = ":42069"
@@ -17,47 +18,47 @@ const port = ":42069"
 // Goorutine searchs for new line and then pust while line into
 // channel. Closes channel when there is no more data in io.ReadCloser to read
 // note: io can be anything from file to tcp connection
-func getLinesChannel(f io.ReadCloser) <- chan string {
+// func getLinesChannel(f io.ReadCloser) <- chan string {
 
-	lines := make(chan string)
+// 	lines := make(chan string)
 
-	// Goroutine to write file contents to channel line by line
-	go func () {
-		defer close(lines)
-		defer f.Close()
-		var currentLine string = ""
-		for {
-			dataChunk := make([]byte, 8)
-			numOfBytes, readError := f.Read(dataChunk)
-			if readError != nil {
-				if errors.Is(readError, io.EOF) {
-					break
-				}
-				fmt.Printf("error: %s\n", readError.Error())
-				return
-			}
+// 	// Goroutine to write file contents to channel line by line
+// 	go func () {
+// 		defer close(lines)
+// 		defer f.Close()
+// 		var currentLine string = ""
+// 		for {
+// 			dataChunk := make([]byte, 8)
+// 			numOfBytes, readError := f.Read(dataChunk)
+// 			if readError != nil {
+// 				if errors.Is(readError, io.EOF) {
+// 					break
+// 				}
+// 				fmt.Printf("error: %s\n", readError.Error())
+// 				return
+// 			}
 
-			dataString := string(dataChunk[:numOfBytes])
-			currentLine += dataString
+// 			dataString := string(dataChunk[:numOfBytes])
+// 			currentLine += dataString
 
-			// Read until new line character, then place whole line
-			// into clannel and accumulate next line.
-			parts := strings.Split(currentLine, "\n")
+// 			// Read until new line character, then place whole line
+// 			// into clannel and accumulate next line.
+// 			parts := strings.Split(currentLine, "\n")
 
-			for i := 0; i < len(parts)-1; i++ {
-				lines <- parts[i]
-			}
+// 			for i := 0; i < len(parts)-1; i++ {
+// 				lines <- parts[i]
+// 			}
 
-			currentLine = parts[len(parts)-1]
+// 			currentLine = parts[len(parts)-1]
 
-		}
-		if currentLine != "" {
-			lines <- currentLine
-		}
-	}()
+// 		}
+// 		if currentLine != "" {
+// 			lines <- currentLine
+// 		}
+// 	}()
 
-	return lines
-}
+// 	return lines
+// }
 
 
 
@@ -79,11 +80,20 @@ func main() {
 		}
 		fmt.Println("Accepted connection from", connection.RemoteAddr())
 
-		// Get channel and read data from it
-		linesChannel := getLinesChannel(connection)
-		for elem := range linesChannel {
-			fmt.Printf("%s\n", elem)
+
+		requestLines, error := request.RequestFromReader(connection)
+		if error != nil {
+			fmt.Printf("Reading request from connection failed: %s\n", err.Error())
+			os.Exit(0)
 		}
+
+		fmt.Printf("Request line: \n - Method: %s\n - Target: %s\n - Version: %s\n", requestLines.RequestLine.Method, requestLines.RequestLine.RequestTarget, requestLines.RequestLine.HttpVersion)
+
+		// Get channel and read data from it
+		// linesChannel := getLinesChannel(connection)
+		// for elem := range linesChannel {
+		// 	fmt.Printf("%s\n", elem)
+		// }
 
 		fmt.Println("Connection to", connection.RemoteAddr(), "closed")
 	

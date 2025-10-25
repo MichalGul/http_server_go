@@ -5,10 +5,50 @@ import (
 	"fmt"
 	"io"
 	"strings"
+	"errors"
+)
+
+type RequestParsingState int
+
+const (
+	Initialized RequestParsingState = iota
+	Done
 )
 
 type Request struct {
-	RequestLine RequestLine
+	RequestLine  RequestLine
+	ParsingState RequestParsingState
+}
+
+func (r *Request) parse (data []byte) (int, error) {
+
+	switch r.ParsingState {
+		case Initialized:
+			numOfBytes, requestLine, err := parseRequestLine(data)
+			if err != nil {
+				return 0, err
+			}
+
+			if numOfBytes == 0 && err == nil {
+				// needs more data from the stream
+				return 0, nil
+			}
+
+			// Succesfuly parsed bytes
+			r.RequestLine = *requestLine
+			r.ParsingState = Done
+
+			return numOfBytes, nil
+
+
+		case Done:
+			return 0, fmt.Errorf("error: trying to read data in a done state")
+
+		default:
+			return 0, fmt.Errorf("error: unknown request parsting state")
+
+	}
+
 }
 
 type RequestLine struct {
@@ -18,22 +58,26 @@ type RequestLine struct {
 }
 
 const crlf = "\r\n"
+const streamBufferSize = 8
 
-func parseRequestLine(data []byte) (*RequestLine, error) {
-	
+func parseRequestLine(data []byte) (int, *RequestLine, error) {
+
 	// Find endline /r/n so everything until first CR on http request
 	idx := bytes.Index(data, []byte(crlf))
 	if idx == -1 {
-		return nil, fmt.Errorf("could not find CRLF in request-line")
+		// return nil, fmt.Errorf("could not find CRLF in request-line")\
+		return 0, nil, nil // needs more byte to read
 	}
 	requestLineText := string(data[:idx])
 	requestLine, err := requestLineFromString(requestLineText)
 	if err != nil {
-		return nil, err
+		return 0, nil, err
 	}
-	return requestLine, nil
+	return idx +2, requestLine, nil
 }
 
+// Parse http request as string to RequestLine object
+// Perform structure checs for HTTP request standard
 func requestLineFromString(requestLineString string) (*RequestLine, error) {
 
 	fmt.Printf("requestLineRaw: %s \n", requestLineString)
@@ -81,23 +125,43 @@ func requestLineFromString(requestLineString string) (*RequestLine, error) {
 
 func RequestFromReader(reader io.Reader) (*Request, error) {
 
-	requestString, err := io.ReadAll(reader)
-
-	if err != nil {
-		fmt.Printf("error: %s\n", err.Error())
-		return nil, err
+	// Buffer chunk size to read data from stream (by streamBufferSize bytes at the time untile streaming data is finished)
+	databuffor := make([]byte, streamBufferSize, streamBufferSize)
+	readToIndex := 0 // track how much data read from io.Reader into the buffer
+	readingRequest := &Request{
+		ParsingState: Initialized,
 	}
 
-	fmt.Printf("Reader data: \n %s \n", string(requestString))
-	requestLine, err := parseRequestLine(requestString)
-	if err != nil {
-		fmt.Printf("error: %s\n", err.Error())
-		return nil, err
+
+	for readingRequest.ParsingState != Done {
+
+		if readToIndex >= len(databuffor){ // when buffor is full
+			// make new slice with capacity x2 and copy data
+			newBuffor := make([]byte, 2*len(databuffor))
+			copy(newBuffor, databuffor)
+			databuffor = newBuffor
+		}
+
+		numOfBytesRead, readError := reader.Read(databuffor[readToIndex:])
+		if readError != nil {
+			if errors.Is(readError, io.EOF) { // Read all
+				readingRequest.ParsingState = Done
+				break
+			}
+		}
+		endReadIndex := readToIndex + numOfBytesRead
+		readToIndex = endReadIndex
+
+		// numOfParsedBytes will be 0 untile whole request line present
+		numOfParsedBytes, parseError := readingRequest.parse(databuffor[:endReadIndex])
+		if parseError != nil {
+			return nil, parseError
+		}
+
+		copy(databuffor, databuffor[numOfParsedBytes:])
+		readToIndex -= numOfParsedBytes
+
 	}
 
-	request := Request{
-		RequestLine: *requestLine,
-	}
-
-	return &request, nil
+	return readingRequest, nil
 }
