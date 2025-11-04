@@ -20,6 +20,15 @@ type Request struct {
 	ParsingState RequestParsingState
 }
 
+type RequestLine struct {
+	HttpVersion   string
+	RequestTarget string
+	Method        string
+}
+
+//
+//
+//
 func (r *Request) parse (data []byte) (int, error) {
 
 	switch r.ParsingState {
@@ -51,11 +60,7 @@ func (r *Request) parse (data []byte) (int, error) {
 
 }
 
-type RequestLine struct {
-	HttpVersion   string
-	RequestTarget string
-	Method        string
-}
+
 
 const crlf = "\r\n"
 const streamBufferSize = 8
@@ -69,6 +74,11 @@ func parseRequestLine(data []byte) (int, *RequestLine, error) {
 		return 0, nil, nil // needs more byte to read
 	}
 	requestLineText := string(data[:idx])
+
+	// Rest of message after first request line, meaning headers and body separaterd wit /r/n
+	// bytesRead := idx + len(crlf)
+	// resetOfMessage := string(data[idx + len(crlf)])
+
 	requestLine, err := requestLineFromString(requestLineText)
 	if err != nil {
 		return 0, nil, err
@@ -83,6 +93,7 @@ func requestLineFromString(requestLineString string) (*RequestLine, error) {
 	fmt.Printf("requestLineRaw: %s \n", requestLineString)
 
 	requestLineParts := strings.Split(requestLineString, " ")
+	
 	if len(requestLineParts) != 3 {
 		return nil, fmt.Errorf("poorly formatted request-line: %s", requestLineParts)
 	}
@@ -123,6 +134,13 @@ func requestLineFromString(requestLineString string) (*RequestLine, error) {
 
 }
 
+// Main method to parse incoming data through tcp connection
+// reads from io.Reader that is tcp connection or file
+// It uses []byte as buffor for data with set streamBufferSize
+// Create Request object with Init state, Check for done state in loop,
+// Read bytes from io.Reader, to buffer, acknowledge number of bytes read
+// atempt to parse bytes to RequestLine, and move buffor 
+// readingRequest.parse determines if whole Request line was read and changes state to Done
 func RequestFromReader(reader io.Reader) (*Request, error) {
 
 	// Buffer chunk size to read data from stream (by streamBufferSize bytes at the time untile streaming data is finished)
@@ -149,6 +167,7 @@ func RequestFromReader(reader io.Reader) (*Request, error) {
 				break
 			}
 		}
+
 		endReadIndex := readToIndex + numOfBytesRead
 		readToIndex = endReadIndex
 
@@ -158,6 +177,7 @@ func RequestFromReader(reader io.Reader) (*Request, error) {
 			return nil, parseError
 		}
 
+		// Move past by read data, w don't need them in buffor.
 		copy(databuffor, databuffor[numOfParsedBytes:])
 		readToIndex -= numOfParsedBytes
 
