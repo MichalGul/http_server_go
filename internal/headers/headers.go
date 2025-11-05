@@ -92,8 +92,15 @@ func (h Headers) Parse(data []byte) (int, bool, error) {
 		return 0, false, err
 	}
 
-	// Set header
-	h[name] = value
+	// Set header if not existing else append
+
+	if _, exists := h[name]; !exists {
+		h[name] = value
+	} else {
+		h[name] += fmt.Sprintf(", %s", value)
+	}
+
+	
 	dataRead += len(headerBytes)
 
 	return index + len(crlf), false, nil //index plus len(crls)

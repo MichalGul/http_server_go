@@ -7,7 +7,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestParsingHeaders ( t *testing.T) {
+func TestParsingHeaders(t *testing.T) {
 
 	// Test: Valid single header
 	headers := NewHeaders()
@@ -56,7 +56,6 @@ func TestParsingHeaders ( t *testing.T) {
 	assert.Equal(t, 2, n)
 	assert.True(t, done)
 
-
 	// Test: Valid 2 headers with existing headers
 	headers = map[string]string{"host": "localhost:42069"}
 	data = []byte("User-Agent: curl/7.81.0\r\nAccept: */*\r\n\r\n")
@@ -88,5 +87,15 @@ func TestParsingHeaders ( t *testing.T) {
 	assert.Equal(t, 0, n)
 	assert.False(t, done)
 
+	// Test: Append to presend header
+	headers = map[string]string{"set-example-header": "example-header-value1, example-header-value2"}
+	data = []byte("Set-Example-Header: example-header-value3\r\n\r\n")
+	n, done, err = headers.Parse(data)
+	require.NoError(t, err)
+	require.NotNil(t, headers)
+
+	assert.Equal(t, "example-header-value1, example-header-value2, example-header-value3", headers["set-example-header"])
+	assert.Equal(t, 43, n)
+	assert.False(t, done)
 
 }
