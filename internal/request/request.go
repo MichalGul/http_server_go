@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"strconv"
 	"strings"
 
 	"github.com/MichalGul/http_server_go/internal/headers"
@@ -15,13 +16,16 @@ type RequestParsingState int
 const (
 	Initialized RequestParsingState = iota
 	ParsingHeaders
+	ParsingBody
 	Done
 )
 
 type Request struct {
-	RequestLine  RequestLine
-	ParsingState RequestParsingState
-	Headers      headers.Headers
+	RequestLine    RequestLine
+	ParsingState   RequestParsingState
+	Headers        headers.Headers
+	Body           []byte
+	bodyLengthRead int
 }
 
 type RequestLine struct {
@@ -30,46 +34,80 @@ type RequestLine struct {
 	Method        string
 }
 
-//
-//
-//
+const contentHeader = "Content-Length"
 
+// Attempt to parse single chunk of data and move state machine if transition criteria is valid
+// It is called in a loop from parse method (which is also called in loop) to properly move buffor data
+// and check for valid data, meaning crlf signs on http request schema
+// GET /goodies HTTP/1.1       # start-line CRLF
+// Host: localhost:42069       # *( field-line CRLF )
+// User-Agent: curl/7.81.0     # *( field-line CRLF )
+// Accept: */*                 # *( field-line CRLF )
+//
+//	# CRLF
+//	# [ message-body ] (empty)
 func (r *Request) parseSingle(data []byte) (int, error) {
 
 	switch r.ParsingState {
 
-		case Initialized:
-			numOfBytes, requestLine, err := parseRequestLine(data)
-			if err != nil {
-				return 0, err
-			}
+	case Initialized:
+		numOfBytes, requestLine, err := parseRequestLine(data)
+		if err != nil {
+			return 0, err
+		}
 
-			if numOfBytes == 0 && err == nil {
-				// needs more data from the stream
-				return 0, nil
-			}
+		if numOfBytes == 0 && err == nil {
+			// needs more data from the stream
+			return 0, nil
+		}
 
-			// Succesfuly parsed line request time for headers
-			r.RequestLine = *requestLine
-			r.ParsingState = ParsingHeaders
+		// Succesfuly parsed line request time for headers
+		r.RequestLine = *requestLine
+		r.ParsingState = ParsingHeaders
 
-			return numOfBytes, nil
+		return numOfBytes, nil
 
-		case ParsingHeaders:
-			numOfBytes, done, err := r.Headers.Parse(data)
-			if err != nil {
-				return 0, err
-			}
-			if done {
-				r.ParsingState = Done
-			}
-			return numOfBytes, nil
+	case ParsingHeaders:
+		numOfBytes, done, err := r.Headers.Parse(data)
+		if err != nil {
+			return 0, err
+		}
+		if done {
+			r.ParsingState = ParsingBody
+		}
+		return numOfBytes, nil
 
-		case Done:
-			return 0, fmt.Errorf("error: trying to read data in a done state")
+	case ParsingBody:
+		contentLengthValue, contentLengthExists := r.Headers.Get(contentHeader)
+		if !contentLengthExists {
+			// No body finish parsing
+			r.ParsingState = Done
+			return len(data), nil
+		}
 
-		default:
-			return 0, fmt.Errorf("error: unknown request parsting state")
+		contentLengthInt, err := strconv.Atoi(contentLengthValue)
+		if err != nil {
+			return 0, fmt.Errorf("malformed Content-Length: %s", err)
+		}
+		// Appending remaining data to body
+		r.Body = append(r.Body, data...)
+		r.bodyLengthRead += len(data)
+
+		if len(r.Body) > contentLengthInt {
+			return 0, fmt.Errorf("request body greater than content-length header")
+		}
+
+		if len(r.Body) == contentLengthInt {
+			r.ParsingState = Done
+		}
+
+		return len(data), nil
+
+	case Done:
+		return 0, fmt.Errorf("error: trying to read data in a done state")
+
+	default:
+		return 0, fmt.Errorf("error: unknown request parsting state")
 
 	}
 }
@@ -86,7 +124,7 @@ func (r *Request) parse(data []byte) (int, error) {
 		}
 		totalBytesParsed += numOfBytes
 
-		if numOfBytes == 0  {
+		if numOfBytes == 0 {
 			// needs more data from the stream so return totalBytesParsed to move data
 			break
 		}
@@ -175,7 +213,7 @@ func requestLineFromString(requestLineString string) (*RequestLine, error) {
 // Create Request object with Init state, Check for done state in loop,
 // Read bytes from io.Reader, to buffer, acknowledge number of bytes read
 // atempt to parse bytes to RequestLine, and move buffor
-// readingRequest.parse determines if whole Request line was read and changes state to Done
+// readingRequest.parse determines if whole Request line and Headers was read and changes state to Done
 func RequestFromReader(reader io.Reader) (*Request, error) {
 
 	// Buffer chunk size to read data from stream (by streamBufferSize bytes at the time untile streaming data is finished)
@@ -184,6 +222,7 @@ func RequestFromReader(reader io.Reader) (*Request, error) {
 	readingRequest := &Request{
 		ParsingState: Initialized,
 		Headers:      headers.NewHeaders(),
+		Body:         make([]byte, 0),
 	}
 
 	for readingRequest.ParsingState != Done {

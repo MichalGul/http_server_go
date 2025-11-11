@@ -6,8 +6,9 @@ import (
 	// "io"
 	"os"
 	// "strings"
-	"net"
 	"log"
+	"net"
+
 	"github.com/MichalGul/http_server_go/internal/request"
 )
 
@@ -60,8 +61,6 @@ const port = ":42069"
 // 	return lines
 // }
 
-
-
 func main() {
 
 	// Opening TCP connection
@@ -80,14 +79,13 @@ func main() {
 		}
 		fmt.Println("Accepted connection from", connection.RemoteAddr())
 
-
-		requestLines, error := request.RequestFromReader(connection)
+		parsedRequest, error := request.RequestFromReader(connection)
 		if error != nil {
 			fmt.Printf("Reading request from connection failed: %s\n", err.Error())
 			os.Exit(0)
 		}
 
-		fmt.Printf("Request line: \n - Method: %s\n - Target: %s\n - Version: %s\n", requestLines.RequestLine.Method, requestLines.RequestLine.RequestTarget, requestLines.RequestLine.HttpVersion)
+		fmt.Printf("Request line: \n - Method: %s\n - Target: %s\n - Version: %s\n", parsedRequest.RequestLine.Method, parsedRequest.RequestLine.RequestTarget, parsedRequest.RequestLine.HttpVersion)
 
 		// Get channel and read data from it
 		// linesChannel := getLinesChannel(connection)
@@ -95,8 +93,15 @@ func main() {
 		// 	fmt.Printf("%s\n", elem)
 		// }
 
+		fmt.Println("Headers:")
+		for name, value := range parsedRequest.Headers {
+			fmt.Printf("- %s: %s\n", name, value)
+		}
+
+		fmt.Println("Body: ")
+		fmt.Printf("%s\n", parsedRequest.Body)
+
 		fmt.Println("Connection to", connection.RemoteAddr(), "closed")
-	
 
 	}
 

@@ -66,6 +66,18 @@ func parseHeader(fieldLine []byte) (string, string, error) {
 
 }
 
+func (h Headers) Get(name string) (string, bool) {
+
+	name = strings.ToLower(name)
+	headerValue, exists := h[name]
+	if exists {
+		return headerValue, true
+	}
+	return "", false
+	
+
+}
+
 // Parse raw string headers to Headers map
 // Headers structure: ```field-line   = field-name ":" OWS field-value OWS``` OWS whitespaces zero or more
 // gets header data in bytes parses it according to headers structure and check if last crlf was found meainng end of headers.
