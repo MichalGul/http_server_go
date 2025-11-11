@@ -2,22 +2,26 @@ package request
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"io"
 	"strings"
-	"errors"
+
+	"github.com/MichalGul/http_server_go/internal/headers"
 )
 
 type RequestParsingState int
 
 const (
 	Initialized RequestParsingState = iota
+	ParsingHeaders
 	Done
 )
 
 type Request struct {
 	RequestLine  RequestLine
 	ParsingState RequestParsingState
+	Headers      headers.Headers
 }
 
 type RequestLine struct {
@@ -29,9 +33,11 @@ type RequestLine struct {
 //
 //
 //
-func (r *Request) parse (data []byte) (int, error) {
+
+func (r *Request) parseSingle(data []byte) (int, error) {
 
 	switch r.ParsingState {
+
 		case Initialized:
 			numOfBytes, requestLine, err := parseRequestLine(data)
 			if err != nil {
@@ -43,12 +49,21 @@ func (r *Request) parse (data []byte) (int, error) {
 				return 0, nil
 			}
 
-			// Succesfuly parsed bytes
+			// Succesfuly parsed line request time for headers
 			r.RequestLine = *requestLine
-			r.ParsingState = Done
+			r.ParsingState = ParsingHeaders
 
 			return numOfBytes, nil
 
+		case ParsingHeaders:
+			numOfBytes, done, err := r.Headers.Parse(data)
+			if err != nil {
+				return 0, err
+			}
+			if done {
+				r.ParsingState = Done
+			}
+			return numOfBytes, nil
 
 		case Done:
 			return 0, fmt.Errorf("error: trying to read data in a done state")
@@ -57,10 +72,30 @@ func (r *Request) parse (data []byte) (int, error) {
 			return 0, fmt.Errorf("error: unknown request parsting state")
 
 	}
-
 }
 
+func (r *Request) parse(data []byte) (int, error) {
 
+	totalBytesParsed := 0
+	//Header and body may be needed to be called multiple times so we will spin state machine until done
+	for r.ParsingState != Done {
+		numOfBytes, err := r.parseSingle(data[totalBytesParsed:])
+
+		if err != nil {
+			return 0, err
+		}
+		totalBytesParsed += numOfBytes
+
+		if numOfBytes == 0  {
+			// needs more data from the stream so return totalBytesParsed to move data
+			break
+		}
+
+	}
+
+	return totalBytesParsed, nil
+
+}
 
 const crlf = "\r\n"
 const streamBufferSize = 8
@@ -83,7 +118,7 @@ func parseRequestLine(data []byte) (int, *RequestLine, error) {
 	if err != nil {
 		return 0, nil, err
 	}
-	return idx +2, requestLine, nil
+	return idx + 2, requestLine, nil
 }
 
 // Parse http request as string to RequestLine object
@@ -93,7 +128,7 @@ func requestLineFromString(requestLineString string) (*RequestLine, error) {
 	fmt.Printf("requestLineRaw: %s \n", requestLineString)
 
 	requestLineParts := strings.Split(requestLineString, " ")
-	
+
 	if len(requestLineParts) != 3 {
 		return nil, fmt.Errorf("poorly formatted request-line: %s", requestLineParts)
 	}
@@ -139,7 +174,7 @@ func requestLineFromString(requestLineString string) (*RequestLine, error) {
 // It uses []byte as buffor for data with set streamBufferSize
 // Create Request object with Init state, Check for done state in loop,
 // Read bytes from io.Reader, to buffer, acknowledge number of bytes read
-// atempt to parse bytes to RequestLine, and move buffor 
+// atempt to parse bytes to RequestLine, and move buffor
 // readingRequest.parse determines if whole Request line was read and changes state to Done
 func RequestFromReader(reader io.Reader) (*Request, error) {
 
@@ -148,12 +183,12 @@ func RequestFromReader(reader io.Reader) (*Request, error) {
 	readToIndex := 0 // track how much data read from io.Reader into the buffer
 	readingRequest := &Request{
 		ParsingState: Initialized,
+		Headers:      headers.NewHeaders(),
 	}
-
 
 	for readingRequest.ParsingState != Done {
 
-		if readToIndex >= len(databuffor){ // when buffor is full
+		if readToIndex >= len(databuffor) { // when buffor is full
 			// make new slice with capacity x2 and copy data
 			newBuffor := make([]byte, 2*len(databuffor))
 			copy(newBuffor, databuffor)
@@ -163,7 +198,9 @@ func RequestFromReader(reader io.Reader) (*Request, error) {
 		numOfBytesRead, readError := reader.Read(databuffor[readToIndex:])
 		if readError != nil {
 			if errors.Is(readError, io.EOF) { // Read all
-				readingRequest.ParsingState = Done
+				if readingRequest.ParsingState != Done {
+					return readingRequest, fmt.Errorf("unexpected end of data: request incomplete")
+				}
 				break
 			}
 		}
