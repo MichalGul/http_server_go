@@ -5,6 +5,8 @@ import (
 	"net"
 	"strconv"
 	"sync/atomic"
+
+	"github.com/MichalGul/http_server_go/internal/response"
 )
 
 type Server struct {
@@ -65,12 +67,16 @@ func (s *Server) listen() {
 func (s *Server) handle(conn net.Conn) {
 	defer conn.Close()
 
-	staticResponse := "HTTP/1.1 200 OK\r\n" + // Status line
-		"Content-Type: text/plain\r\n" + // Example header
-		"Content-Length: 14\r\n" + // Content length header
-		"\r\n" + // Blank line to separate headers from the body
-		"Hello World!\n" // Body
+	response.WriteStatusLine(conn, response.OkStatusCode)
+	headers := response.GetDefaultHeaders(0)
+	response.WriteHeaders(conn, headers)
 
-	conn.Write([]byte(staticResponse))
+
+	// staticResponse := "HTTP/1.1 200 OK\r\n" + // Status line
+	// 	"Content-Type: text/plain\r\n" + // Example header
+	// 	"\r\n" + // Blank line to separate headers from the body
+	// 	"Hello World!\n" // Body
+
+	// conn.Write([]byte(staticResponse))
 	return
 }
