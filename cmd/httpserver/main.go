@@ -1,18 +1,44 @@
 package main
 
 import (
+	"io"
 	"log"
 	"os"
 	"os/signal"
 	"syscall"
 
+	"github.com/MichalGul/http_server_go/internal/request"
+	"github.com/MichalGul/http_server_go/internal/response"
 	"github.com/MichalGul/http_server_go/internal/server"
 )
 
 const port = 42069
 
+func basicHandler(w io.Writer, req *request.Request) *server.HandlerError {
+
+	if req.RequestLine.RequestTarget == "/yourproblem" {
+		return &server.HandlerError{
+			StatusCode: response.BadRequestStatusCode,
+			Message: "Your problem is not my problem\n",
+		}
+
+	} else if req.RequestLine.RequestTarget == "/myproblem" {
+		return &server.HandlerError{
+			StatusCode: response.InternalServerErrorStatusCode,
+			Message: "Woopsie, my bad\n",
+		}
+	} else {
+		w.Write([]byte("All good, frfr\n"))
+		return nil
+	}
+
+	
+
+}
+
 func main() {
-	serv, err := server.Serve(port)
+
+	serv, err := server.Serve(port, basicHandler)
 	if err != nil {
 		log.Fatalf("Error starting server: %v", err)
 	}
