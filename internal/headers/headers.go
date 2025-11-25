@@ -74,8 +74,12 @@ func (h Headers) Get(name string) (string, bool) {
 		return headerValue, true
 	}
 	return "", false
-	
 
+}
+
+func (h Headers) Set(name, value string) {
+	// name = strings.ToLower(name)
+	h[name] = value
 }
 
 // Parse raw string headers to Headers map
@@ -112,7 +116,6 @@ func (h Headers) Parse(data []byte) (int, bool, error) {
 		h[name] += fmt.Sprintf(", %s", value)
 	}
 
-	
 	dataRead += len(headerBytes)
 
 	return index + len(crlf), false, nil //index plus len(crls)

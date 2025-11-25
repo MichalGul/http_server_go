@@ -1,7 +1,6 @@
 package server
 
 import (
-	"bytes"
 	"fmt"
 	"io"
 	"net"
@@ -18,7 +17,7 @@ type Server struct {
 	handler 		   Handler
 }
 
-type Handler func(w io.Writer, req *request.Request) *HandlerError
+type Handler func(w *response.Writer, req *request.Request)
 
 type HandlerError struct {
 	StatusCode response.StatusCode
@@ -88,39 +87,21 @@ func (s *Server) listen() {
 
 }
 
-
 func (s *Server) handle(conn net.Conn) {
 	defer conn.Close()
 
+	responseWritter := response.NewWritter(conn)
+
 	req, err := request.RequestFromReader(conn)
 	if err != nil {
-		handleError := &HandlerError{
-			StatusCode: response.BadRequestStatusCode,
-			Message:    err.Error(),
-		}
-		handleError.Write(conn)
-	}
-
-	dataBuff := bytes.NewBuffer(nil)
-	handlerError := s.handler(dataBuff, req)
-
-	if handlerError != nil {
-		handlerError.Write(conn)
+		responseWritter.WriteStatusLine(response.BadRequestStatusCode)
+		defaultHeaders := response.GetDefaultHeaders(len(err.Error()))
+		responseWritter.WriteHeaders(defaultHeaders)
+		responseWritter.WriteBody([]byte(err.Error()))
 		return
 	}
 
-	b := dataBuff.Bytes()
-	response.WriteStatusLine(conn, response.OkStatusCode)
-	headers := response.GetDefaultHeaders(len(b))
-	response.WriteHeaders(conn, headers)
-	conn.Write(b)
-
-	// staticResponse := "HTTP/1.1 200 OK\r\n" + // Status line
-	// 	"Content-Type: text/plain\r\n" + // Example header
-	// 	"\r\n" + // Blank line to separate headers from the body
-	// 	"Hello World!\n" // Body
-
-	// conn.Write([]byte(staticResponse))
+	s.handler(responseWritter, req)
 
 	return
 }

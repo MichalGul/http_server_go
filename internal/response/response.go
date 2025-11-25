@@ -16,6 +16,68 @@ const (
 	InternalServerErrorStatusCode StatusCode = 500
 )
 
+type WriteState int
+
+const (
+	Initialize = iota
+	StatusLineWrote
+	HeadersWrote
+	BodyWrote
+
+)
+
+type Writer struct {
+	Connection io.Writer
+	WriteState WriteState
+}
+
+func NewWritter(conn io.Writer) *Writer{
+	return &Writer{
+		Connection: conn,
+		WriteState: Initialize,
+	}
+}
+
+func (w *Writer) WriteStatusLine(statusCode StatusCode) error {
+
+	if w.WriteState != Initialize {
+		return fmt.Errorf("error: atempt to write to response in incorrect state")
+	}
+
+	byteStatusLine := getStatusLine(statusCode)
+	_, err := w.Connection.Write(byteStatusLine)
+	if err != nil{
+		return err
+	}
+	w.WriteState = StatusLineWrote
+	return nil
+}
+
+func (w *Writer) WriteHeaders(headers headers.Headers) error {
+
+	if w.WriteState != StatusLineWrote{
+		return fmt.Errorf("error: atempt to write headers in incorrect state")
+	}
+
+	err := WriteHeaders(w.Connection, headers)
+	if err != nil {
+		return err
+	}
+
+	w.WriteState = HeadersWrote
+	return nil
+}
+
+func (w *Writer) WriteBody(p []byte) (int, error) {
+
+	if w.WriteState != HeadersWrote {
+		return 0, fmt.Errorf("error: atempt to write body in incorrect state")
+	}
+
+	w.WriteState = BodyWrote
+	return w.Connection.Write(p)
+}
+
 
 func getStatusLine(statusCode StatusCode) []byte {
 	reasonPhrase := ""
@@ -30,10 +92,6 @@ func getStatusLine(statusCode StatusCode) []byte {
 	return []byte(fmt.Sprintf("HTTP/1.1 %d %s\r\n", statusCode, reasonPhrase))
 }
 
-func WriteStatusLine(w io.Writer, statusCode StatusCode) error {
-	_, err := w.Write(getStatusLine(statusCode))
-	return err
-}
 
 func GetDefaultHeaders(contentLen int) headers.Headers {
 

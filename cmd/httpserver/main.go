@@ -1,7 +1,6 @@
 package main
 
 import (
-	"io"
 	"log"
 	"os"
 	"os/signal"
@@ -14,22 +13,57 @@ import (
 
 const port = 42069
 
-func basicHandler(w io.Writer, req *request.Request) *server.HandlerError {
+const BAD_REQUEST =`<html>
+  <head>
+    <title>400 Bad Request</title>
+  </head>
+  <body>
+    <h1>Bad Request</h1>
+    <p>Your request honestly kinda sucked.</p>
+  </body>
+</html>`
+
+const SERVER_ERROR =`<html>
+  <head>
+    <title>500 Internal Server Error</title>
+  </head>
+  <body>
+    <h1>Internal Server Error</h1>
+    <p>Okay, you know what? This one is on me.</p>
+  </body>
+</html>`
+
+const OK = `<html>
+  <head>
+    <title>200 OK</title>
+  </head>
+  <body>
+    <h1>Success!</h1>
+    <p>Your request was an absolute banger.</p>
+  </body>
+</html>`
+
+func basicHandler(w *response.Writer, req *request.Request) {
 
 	if req.RequestLine.RequestTarget == "/yourproblem" {
-		return &server.HandlerError{
-			StatusCode: response.BadRequestStatusCode,
-			Message: "Your problem is not my problem\n",
-		}
+		w.WriteStatusLine(response.BadRequestStatusCode)
+		headers := response.GetDefaultHeaders(len(BAD_REQUEST))
+		headers.Set("Content-Type", "text/html")
+		w.WriteHeaders(headers)
+		w.WriteBody([]byte(BAD_REQUEST))
 
 	} else if req.RequestLine.RequestTarget == "/myproblem" {
-		return &server.HandlerError{
-			StatusCode: response.InternalServerErrorStatusCode,
-			Message: "Woopsie, my bad\n",
-		}
+		w.WriteStatusLine(response.InternalServerErrorStatusCode)
+		headers := response.GetDefaultHeaders(len(SERVER_ERROR))
+		headers.Set("Content-Type", "text/html")
+		w.WriteHeaders(headers)
+		w.WriteBody([]byte(SERVER_ERROR))
 	} else {
-		w.Write([]byte("All good, frfr\n"))
-		return nil
+		w.WriteStatusLine(response.OkStatusCode)
+		headers := response.GetDefaultHeaders(len(OK))
+		headers.Set("Content-Type", "text/html")
+		w.WriteHeaders(headers)
+		w.WriteBody([]byte(OK))
 	}
 
 	
