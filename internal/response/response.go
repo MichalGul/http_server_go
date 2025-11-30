@@ -96,7 +96,25 @@ func (w *Writer) WriteChunkedBody(p []byte) (int, error) {
 func (w *Writer) WriteChunkedBodyDone() (int, error) {
 
 	w.WriteState = BodyWrote
-	return w.Connection.Write([]byte("0\r\n\r\n"))
+	return w.Connection.Write([]byte("0\r\n"))
+}
+
+func (w *Writer) WriteTrailers(h headers.Headers) error {
+
+	if w.WriteState != BodyWrote{
+		return fmt.Errorf("error: Body was not send fully. Cannot write trailers")
+	}
+
+
+	for name, value := range h {
+		_, err := w.Connection.Write([]byte(fmt.Sprintf("%s: %s\r\n", name, value)))
+		if err != nil {
+			return err
+		}
+	}
+	w.Connection.Write([]byte("\r\n"))
+	return nil
+
 }
 
 func getStatusLine(statusCode StatusCode) []byte {
@@ -134,3 +152,4 @@ func WriteHeaders(w io.Writer, headers headers.Headers) error {
 
 	return nil
 }
+

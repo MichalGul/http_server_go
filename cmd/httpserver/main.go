@@ -1,15 +1,19 @@
 package main
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"io"
 	"log"
 	"net/http"
 	"os"
 	"os/signal"
+	"strconv"
 	"strings"
 	"syscall"
 
+	"github.com/MichalGul/http_server_go/internal/headers"
 	"github.com/MichalGul/http_server_go/internal/request"
 	"github.com/MichalGul/http_server_go/internal/response"
 	"github.com/MichalGul/http_server_go/internal/server"
@@ -58,6 +62,11 @@ func basicHandler(w *response.Writer, req *request.Request) {
 		return
 	}
 
+	if path == "/video" {
+		videoHandler(w, req)
+		return
+	}
+
 	if path == "/yourproblem" {
 		w.WriteStatusLine(response.BadRequestStatusCode)
 		headers := response.GetDefaultHeaders(len(BAD_REQUEST))
@@ -81,6 +90,24 @@ func basicHandler(w *response.Writer, req *request.Request) {
 
 }
 
+func videoHandler(w *response.Writer, req *request.Request) {
+
+	w.WriteStatusLine(response.OkStatusCode)
+	file, err := os.ReadFile("/home/michal/workspace/httpfromtcp/http_server_go/assets/vim.mp4")
+
+	if err != nil {
+		handler500(w, req)
+	}
+
+	h := response.GetDefaultHeaders(len(file))
+	h.Set("Content-Type", "video/mp4")
+
+	w.WriteHeaders(h)
+	w.WriteBody(file)
+	return
+
+}
+
 func proxyHandler(w *response.Writer, req *request.Request) {
 
 	path := req.RequestLine.RequestTarget
@@ -89,13 +116,20 @@ func proxyHandler(w *response.Writer, req *request.Request) {
 	proxyPath := fmt.Sprintf("%s/%s", PROXY_TARGET, trimmedPath)
 
 	w.WriteStatusLine(response.OkStatusCode)
-	headers := response.GetDefaultHeaders(0)
+	h := response.GetDefaultHeaders(0)
+	h.Set("Transfer-Encoding", "chunked")
+	h.Set("Trailer", "X-Content-SHA256, X-Content-Length")
+	delete(h, "Content-Length")
 
-	delete(headers, "Content-Length")
-	headers.Set("Transfer-Encoding", "chunked")
+	trailers := headers.NewHeaders()
+	delete(trailers, "Content-Length")
 
 	// Write headers
-	w.WriteHeaders(headers)
+	err := w.WriteHeaders(h)
+	if err != nil {
+		fmt.Printf("error: error calling proxy server %s", proxyPath)
+		return
+	}
 
 	// Request to proxy
 	proxyResponse, err := http.Get(proxyPath)
@@ -107,6 +141,9 @@ func proxyHandler(w *response.Writer, req *request.Request) {
 
 	//Handle response from proxy
 	buf := make([]byte, 256)
+
+	// Store whole message
+	var fullMessage []byte
 
 	// handling reading streaming data
 	for {
@@ -122,12 +159,53 @@ func proxyHandler(w *response.Writer, req *request.Request) {
 		}
 
 		fmt.Printf("chunk (%d bytes): %s\n", n, buf[:n])
-		w.WriteChunkedBody(buf[:n]) // Write read :n bytes to response
+
+		fullMessage = append(fullMessage, buf[:n]...)
+		_, err = w.WriteChunkedBody(buf[:n]) // Write read :n bytes to response
+		if err != nil {
+			fmt.Printf("error: writting data error %v", err)
+		}
+	}
+	// Mark finishing writting body
+	_, err = w.WriteChunkedBodyDone()
+	if err != nil {
+		fmt.Printf("error: writting chunked done data error %v", err)
 	}
 
-	w.WriteChunkedBodyDone()
+	// Calculate hex32 of whole message
+	messageSha := sha256.Sum256(fullMessage)
+	hashHex := hex.EncodeToString(messageSha[:])
 
+	msgLength := len(fullMessage)
 
+	// Add trailers after body
+	trailers.Set("X-Content-SHA256", hashHex)
+	trailers.Set("X-Content-Length", strconv.Itoa(msgLength))
+
+	// Write trailers to client
+	err = w.WriteTrailers(trailers)
+	if err != nil {
+		fmt.Printf("error: writting trailers %v", err)
+	}
+
+}
+
+func handler500(w *response.Writer, _ *request.Request) {
+	w.WriteStatusLine(response.InternalServerErrorStatusCode)
+	body := []byte(`<html>
+<head>
+<title>500 Internal Server Error</title>
+</head>
+<body>
+<h1>Internal Server Error</h1>
+<p>Okay, you know what? This one is on me.</p>
+</body>
+</html>
+`)
+	h := response.GetDefaultHeaders(len(body))
+	h.Set("Content-Type", "text/html")
+	w.WriteHeaders(h)
+	w.WriteBody(body)
 }
 
 func main() {
