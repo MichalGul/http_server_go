@@ -11,8 +11,8 @@ import (
 type StatusCode int
 
 const (
-	OkStatusCode StatusCode = 200
-	BadRequestStatusCode StatusCode = 400
+	OkStatusCode                  StatusCode = 200
+	BadRequestStatusCode          StatusCode = 400
 	InternalServerErrorStatusCode StatusCode = 500
 )
 
@@ -23,15 +23,16 @@ const (
 	StatusLineWrote
 	HeadersWrote
 	BodyWrote
-
 )
+
+const crlf = "\r\n"
 
 type Writer struct {
 	Connection io.Writer
 	WriteState WriteState
 }
 
-func NewWritter(conn io.Writer) *Writer{
+func NewWritter(conn io.Writer) *Writer {
 	return &Writer{
 		Connection: conn,
 		WriteState: Initialize,
@@ -46,7 +47,7 @@ func (w *Writer) WriteStatusLine(statusCode StatusCode) error {
 
 	byteStatusLine := getStatusLine(statusCode)
 	_, err := w.Connection.Write(byteStatusLine)
-	if err != nil{
+	if err != nil {
 		return err
 	}
 	w.WriteState = StatusLineWrote
@@ -55,7 +56,7 @@ func (w *Writer) WriteStatusLine(statusCode StatusCode) error {
 
 func (w *Writer) WriteHeaders(headers headers.Headers) error {
 
-	if w.WriteState != StatusLineWrote{
+	if w.WriteState != StatusLineWrote {
 		return fmt.Errorf("error: atempt to write headers in incorrect state")
 	}
 
@@ -78,6 +79,25 @@ func (w *Writer) WriteBody(p []byte) (int, error) {
 	return w.Connection.Write(p)
 }
 
+func (w *Writer) WriteChunkedBody(p []byte) (int, error) {
+
+	if w.WriteState != HeadersWrote {
+		return 0, fmt.Errorf("error: atempt to write body in incorrect state")
+	}
+
+	chunkLength := len(p)
+	chunkLengthHex := fmt.Sprintf("%x", chunkLength)
+
+	chunkMessage := []byte(fmt.Sprintf("%s\r\n%s\r\n", chunkLengthHex, string(p)))
+	return w.Connection.Write(chunkMessage)
+
+}
+
+func (w *Writer) WriteChunkedBodyDone() (int, error) {
+
+	w.WriteState = BodyWrote
+	return w.Connection.Write([]byte("0\r\n\r\n"))
+}
 
 func getStatusLine(statusCode StatusCode) []byte {
 	reasonPhrase := ""
@@ -92,7 +112,6 @@ func getStatusLine(statusCode StatusCode) []byte {
 	return []byte(fmt.Sprintf("HTTP/1.1 %d %s\r\n", statusCode, reasonPhrase))
 }
 
-
 func GetDefaultHeaders(contentLen int) headers.Headers {
 
 	headers := headers.NewHeaders()
@@ -104,10 +123,10 @@ func GetDefaultHeaders(contentLen int) headers.Headers {
 }
 
 func WriteHeaders(w io.Writer, headers headers.Headers) error {
-	
+
 	for name, value := range headers {
-		_, err := w.Write([]byte(fmt.Sprintf("%s: %s\r\n",name, value)))
-		if err != nil {			
+		_, err := w.Write([]byte(fmt.Sprintf("%s: %s\r\n", name, value)))
+		if err != nil {
 			return err
 		}
 	}

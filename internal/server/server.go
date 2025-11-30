@@ -2,7 +2,6 @@ package server
 
 import (
 	"fmt"
-	"io"
 	"net"
 	"strconv"
 	"sync/atomic"
@@ -24,17 +23,17 @@ type HandlerError struct {
 	Message    string
 }
 
-func (he HandlerError) Write(w io.Writer) {
+// func (he HandlerError) Write(w io.Writer) {
 
-	response.WriteStatusLine(w, he.StatusCode)
-	messageBytes := []byte(he.Message)
-	headers := response.GetDefaultHeaders(len(messageBytes))
-	response.WriteHeaders(w, headers)
+// 	response.WriteStatusLine(w, he.StatusCode)
+// 	messageBytes := []byte(he.Message)
+// 	headers := response.GetDefaultHeaders(len(messageBytes))
+// 	response.WriteHeaders(w, headers)
 
-	// Error message
-	w.Write(messageBytes)
+// 	// Error message
+// 	w.Write(messageBytes)
 
-}
+// }
 
 func Serve(port int, handler Handler) (*Server, error) {
 

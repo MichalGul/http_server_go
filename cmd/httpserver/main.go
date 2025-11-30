@@ -1,9 +1,13 @@
 package main
 
 import (
+	"fmt"
+	"io"
 	"log"
+	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 
 	"github.com/MichalGul/http_server_go/internal/request"
@@ -13,7 +17,7 @@ import (
 
 const port = 42069
 
-const BAD_REQUEST =`<html>
+const BAD_REQUEST = `<html>
   <head>
     <title>400 Bad Request</title>
   </head>
@@ -23,7 +27,7 @@ const BAD_REQUEST =`<html>
   </body>
 </html>`
 
-const SERVER_ERROR =`<html>
+const SERVER_ERROR = `<html>
   <head>
     <title>500 Internal Server Error</title>
   </head>
@@ -43,16 +47,25 @@ const OK = `<html>
   </body>
 </html>`
 
+const PROXY_TARGET = "https://httpbin.org"
+
 func basicHandler(w *response.Writer, req *request.Request) {
 
-	if req.RequestLine.RequestTarget == "/yourproblem" {
+	path := req.RequestLine.RequestTarget
+
+	if strings.HasPrefix(path, "/httpbin/") {
+		proxyHandler(w, req)
+		return
+	}
+
+	if path == "/yourproblem" {
 		w.WriteStatusLine(response.BadRequestStatusCode)
 		headers := response.GetDefaultHeaders(len(BAD_REQUEST))
 		headers.Set("Content-Type", "text/html")
 		w.WriteHeaders(headers)
 		w.WriteBody([]byte(BAD_REQUEST))
 
-	} else if req.RequestLine.RequestTarget == "/myproblem" {
+	} else if path == "/myproblem" {
 		w.WriteStatusLine(response.InternalServerErrorStatusCode)
 		headers := response.GetDefaultHeaders(len(SERVER_ERROR))
 		headers.Set("Content-Type", "text/html")
@@ -66,7 +79,54 @@ func basicHandler(w *response.Writer, req *request.Request) {
 		w.WriteBody([]byte(OK))
 	}
 
-	
+}
+
+func proxyHandler(w *response.Writer, req *request.Request) {
+
+	path := req.RequestLine.RequestTarget
+
+	trimmedPath := strings.TrimPrefix(path, "/httpbin/")
+	proxyPath := fmt.Sprintf("%s/%s", PROXY_TARGET, trimmedPath)
+
+	w.WriteStatusLine(response.OkStatusCode)
+	headers := response.GetDefaultHeaders(0)
+
+	delete(headers, "Content-Length")
+	headers.Set("Transfer-Encoding", "chunked")
+
+	// Write headers
+	w.WriteHeaders(headers)
+
+	// Request to proxy
+	proxyResponse, err := http.Get(proxyPath)
+	if err != nil {
+		fmt.Printf("error: error calling proxy server %s", proxyPath)
+		return
+	}
+	defer proxyResponse.Body.Close()
+
+	//Handle response from proxy
+	buf := make([]byte, 256)
+
+	// handling reading streaming data
+	for {
+		// Read data from proxy info buffor
+		n, err := proxyResponse.Body.Read(buf)
+		if err != nil {
+			if err == io.EOF {
+				// Write done of the chunked body
+				break
+			}
+			fmt.Printf("error: proxing data error %v", err)
+			panic(err)
+		}
+
+		fmt.Printf("chunk (%d bytes): %s\n", n, buf[:n])
+		w.WriteChunkedBody(buf[:n]) // Write read :n bytes to response
+	}
+
+	w.WriteChunkedBodyDone()
+
 
 }
 
